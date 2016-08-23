@@ -1,0 +1,196 @@
+html
+  head
+    style.
+      * {
+        font-family: Arial;
+        color: #1C1C1C;
+      }
+      div {
+        margin: 10px;
+      }
+
+  body
+    h1 Controller
+    h3#useragent
+    #peer
+      #peerid Fetching Peer ID...
+      #screenconnect
+        input(id='screenid', type='number', placeholder='Screen ID')
+        button(onClick='connect()', type='button') Connect
+        input(id='reliablecheck', type='checkbox', checked=true, text='reliable')
+        | WebRTC Reliable?
+        input(id='jsoncheck', type='checkbox', checked=true, text='reliable')
+        | WebRTC Json?
+      b
+        #peerstatus WebRTC: Not connected to a screen.
+      #spamWebRTC
+        | Spam the screen with 1000 WebRTC packets:
+        br
+        button(onClick='startWebRTCSpam()', type='button') SPAM WebRTC!
+      br
+      b
+        #socketstatus Websocket: Not connected to a screen.
+      #spamWebsocket
+        | Spam the screen with 1000 Websocket packets:
+        br
+        button(onClick='startWebsocketSpam()', type='button') SPAM WebSocket!
+
+      #resultstatus
+      table#resultset
+
+
+    script(src='http://cdn.peerjs.com/0.3/peer.js')
+    script.
+      var gamepad = {
+          wButtons: '1',
+          bLeftTrigger: '2',
+          bRightTrigger: '3',
+          sThumbLX: '4',
+          sThumbLY: '5',
+          sThumbRX: '6',
+          sThumbRY: '7',
+        }
+
+      var websocketAddr = 'ws://hi.carnewal.com:3000'
+
+      var webRTCconn = null
+      var websocketConn = null
+      var packets = {}
+      var amountOfPackets = 1000;
+      var packetTimeoutMs = 500;
+      var currentPacket = -1;
+      var timeOut;
+
+      var peer = new Peer('!{peerId}', {key: 'nn7mfwa00j1kmx6r', serialization: 'json'});
+      peer.on('open', function(id) {
+        document.getElementById('peerid').innerHTML = `Your ID: ${id}`
+      });
+
+      document.getElementById('useragent').innerHTML = navigator.userAgent
+
+      var connect = function() {
+        var screenId = document.getElementById('screenid').value
+
+        // Connect WebRTC
+        webRTCconn = peer.connect(screenId, {
+            serialization: document.getElementById('jsoncheck').checked ? 'json' : 'binary',
+            reliable: document.getElementById('reliablecheck').checked
+          });
+        webRTCconn.on('open', function() {
+          document.getElementById('peerstatus').innerHTML = `[WebRTC] Connected to ${screenId}, serialization: ${webRTCconn.serialization}, reliable: ${webRTCconn.reliable}`
+          webRTCconn.on('data', function(data) {
+            if (data.dwPacketNumber === currentPacket) {
+              packets[data.dwPacketNumber].timeEnd = window.performance.now()
+              sendNewWebRTCPacket()
+            }
+          });
+        })
+
+        // Connect Websocket
+        websocketConn = new WebSocket(websocketAddr + '?type=controller&id=!{peerId}&screenid=' + screenId);
+        websocketConn.onopen = function () {
+          document.getElementById('socketstatus').innerHTML = `[Websocket] Connected to server for screen: ${screenId}`
+        }
+
+        websocketConn.onmessage = function (message) {
+          var data = JSON.parse(message.data)
+          if (data.dwPacketNumber === currentPacket) {
+            packets[data.dwPacketNumber].timeEnd = window.performance.now()
+            sendNewWebsocketPacket()
+          }
+        }
+
+      }
+      var resetPackets = function () {
+        document.getElementById('resultset').innerHTML = '';
+        for(var i = 0; i < 1000; i++) {
+          packets[i] = {}
+        }
+        currentPacket = -1
+      }
+
+      var startWebRTCSpam = function() {
+        if (!webRTCconn) { return }
+        resetPackets();
+        sendNewWebRTCPacket();
+      }
+
+      var startWebsocketSpam = function() {
+        if (!webRTCconn) { return }
+        resetPackets();
+        sendNewWebsocketPacket();
+      }
+
+      var sendNewWebRTCPacket = function () {
+        if (currentPacket === amountOfPackets - 1) {
+          document.getElementById('resultstatus').innerHTML = 'Printing result:'
+          printResult('webrtc')
+          return
+        }
+        currentPacket++;
+        if(timeOut) {
+          clearTimeout(timeOut)
+        }
+        packets[currentPacket].timeStart = window.performance.now()
+        webRTCconn.send({
+          dwPacketNumber: currentPacket,
+          Gamepad: gamepad,
+        });
+        timeOut = setTimeout(function () {
+          if(!(packets[currentPacket].timeEnd)) {
+            console.log(currentPacket + ' timed out')
+            packets[currentPacket].timeEnd = 'Timeout'
+            timeOut = null;
+            sendNewWebRTCPacket()
+          }
+        }, packetTimeoutMs)
+      }
+
+      var sendNewWebsocketPacket = function () {
+        if (currentPacket === amountOfPackets - 1) {
+          document.getElementById('resultstatus').innerHTML = 'Printing result:'
+          printResult('websocket')
+          return
+        }
+        currentPacket++;
+        if(timeOut) {
+          clearTimeout(timeOut)
+        }
+        packets[currentPacket].timeStart = window.performance.now()
+        websocketConn.send(JSON.stringify({
+          dwPacketNumber: currentPacket,
+          Gamepad: gamepad,
+        }));
+        timeOut = setTimeout(function () {
+          if(!(packets[currentPacket].timeEnd)) {
+            console.log(currentPacket + ' timed out')
+            packets[currentPacket].timeEnd = 'Timeout'
+            timeOut = null;
+            sendNewWebsocketPacket()
+          }
+        }, packetTimeoutMs)
+      }
+
+
+      var printResult = function(type) {
+        var totalRTT = 0;
+        var lengthNoTimeouts = 0;
+        document.getElementById('resultset').innerHTML += `<tr><th>PcktID</th><th>Ts</th><th>Te</th><th>RTT</th></tr>`
+        for(var i = 0; i < Object.keys(packets).length ; i++) {
+          if (typeof packets[i].timeEnd !== 'string') {
+            lengthNoTimeouts++;
+            totalRTT += packets[i].timeEnd - packets[i].timeStart
+          }
+          document.getElementById('resultset').innerHTML += `<tr><td>${i}</td><td>${packets[i].timeStart}</td><td>${packets[i].timeEnd}</td><td>${packets[i].timeEnd - packets[i].timeStart}</td></tr>`
+        }
+        var averageRTT = totalRTT / lengthNoTimeouts;
+        var averageDel = averageRTT / 2
+        var timeouts = Object.keys(packets).length - lengthNoTimeouts
+
+        document.getElementById('resultset').innerHTML += `<tr><td></td><td></td><td></td><td></td></tr>`
+        document.getElementById('resultset').innerHTML += `<tr><td>Average RTT</td><td></td><td></td><td>${averageRTT}</td></tr>`
+        document.getElementById('resultset').innerHTML += `<tr><td>Average Delivery</td><td><td></td></td><td>${averageDel}</td></tr>`
+        document.getElementById('resultset').innerHTML += `<tr><td>Timeouts: </td><td></td><td></td><td>${timeouts}</td></tr>`
+
+        document.getElementById('resultstatus').innerHTML = 'Your ' + type + ' spam result:'
+      }

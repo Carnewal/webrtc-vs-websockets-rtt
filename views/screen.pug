@@ -1,0 +1,64 @@
+html
+  head
+    style.
+      * {
+        font-family: Arial;
+        color: #1C1C1C;
+      }
+      div {
+        margin: 10px;
+      }
+
+  body
+    h1 Screen
+    h2(id='idshowcase')
+    #socketstatus
+    #status Waiting for controllers...
+    #controllers
+
+    script(src='http://cdn.peerjs.com/0.3/peer.js')
+    script.
+      var peer = new Peer('!{peerId}', {key: 'nn7mfwa00j1kmx6r'});
+      peer.on('open', function(id) {
+        document.getElementById('idshowcase').innerHTML = `Screen ID: ${id}`
+      });
+
+      var websocketAddr = 'ws://hi.carnewal.com:3000'
+
+      var controllers = {}
+
+      peer.on('connection', function(conn) {
+        controllers[conn.peer] = conn
+        refreshControllers()
+
+        conn.on('data', function(data){
+          conn.send(data);
+        });
+      });
+
+      peer.on('disconnected', function(conn) {
+        delete controllers[conn.peer]
+        refreshControllers()
+      });
+
+
+
+      var websocketConn = new WebSocket(websocketAddr + '?type=screen&id=!{peerId}');
+      websocketConn.onopen = function () {
+        document.getElementById('socketstatus').innerHTML = `[Websocket] Connected to server`
+      }
+
+      websocketConn.onmessage = function (message) {
+        websocketConn.send(message.data)
+      }
+
+
+
+      function refreshControllers() {
+        var out = '';
+        for(var i = 0; i < Object.keys(controllers).length; i++) {
+          var c = controllers[Object.keys(controllers)[i]];
+          out += 'Controller #' + c.peer + ', serialization: ' + c.serialization + ', reliable: ' + c.reliable + '<br/>';
+        }
+        document.getElementById('controllers').innerHTML = out;
+      }
