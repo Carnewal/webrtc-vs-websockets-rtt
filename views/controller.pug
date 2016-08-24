@@ -14,6 +14,7 @@ html
     h3#useragent
     #peer
       #peerid Fetching Peer ID...
+      #currentpacket
       #screenconnect
         input(id='screenid', type='number', placeholder='Screen ID')
         button(onClick='connect()', type='button') Connect
@@ -36,6 +37,7 @@ html
         button(onClick='startWebsocketSpam()', type='button') SPAM WebSocket!
 
       #resultstatus
+      #resultstring
       table#resultset
 
 
@@ -51,7 +53,7 @@ html
           sThumbRY: '7',
         }
 
-      var websocketAddr = 'ws://hi.carnewal.com:3000'
+      var serverAddr = 'hi.carnewal.com:3000'
 
       var webRTCconn = null
       var websocketConn = null
@@ -61,10 +63,14 @@ html
       var currentPacket = -1;
       var timeOut;
 
-      var peer = new Peer('!{peerId}', {key: 'nn7mfwa00j1kmx6r', serialization: 'json'});
-      peer.on('open', function(id) {
-        document.getElementById('peerid').innerHTML = `Your ID: ${id}`
-      });
+      try {
+        var peer = new Peer('!{peerId}', {key: 'nn7mfwa00j1kmx6r', serialization: 'json'});
+        peer.on('open', function(id) {
+          document.getElementById('peerid').innerHTML = `Your ID: ${id}`
+        });
+      } catch(ex) {
+        document.getElementById('peerid').innerHTML = `Your (now webrtc) ID: !{peerId}`
+      }
 
       document.getElementById('useragent').innerHTML = navigator.userAgent
 
@@ -72,22 +78,29 @@ html
         var screenId = document.getElementById('screenid').value
 
         // Connect WebRTC
-        webRTCconn = peer.connect(screenId, {
+        try  {
+          webRTCconn = peer.connect(screenId, {
             serialization: document.getElementById('jsoncheck').checked ? 'json' : 'binary',
             reliable: document.getElementById('reliablecheck').checked
           });
+          alert('connecting')
         webRTCconn.on('open', function() {
+          alert('opened')
           document.getElementById('peerstatus').innerHTML = `[WebRTC] Connected to ${screenId}, serialization: ${webRTCconn.serialization}, reliable: ${webRTCconn.reliable}`
           webRTCconn.on('data', function(data) {
             if (data.dwPacketNumber === currentPacket) {
               packets[data.dwPacketNumber].timeEnd = window.performance.now()
+
               sendNewWebRTCPacket()
             }
           });
         })
+      } catch (ex) {
+        alert(ex)
+      }
 
         // Connect Websocket
-        websocketConn = new WebSocket(websocketAddr + '?type=controller&id=!{peerId}&screenid=' + screenId);
+        websocketConn = new WebSocket('ws://' + serverAddr + '?type=controller&id=!{peerId}&screenid=' + screenId);
         websocketConn.onopen = function () {
           document.getElementById('socketstatus').innerHTML = `[Websocket] Connected to server for screen: ${screenId}`
         }
@@ -103,7 +116,7 @@ html
       }
       var resetPackets = function () {
         document.getElementById('resultset').innerHTML = '';
-        for(var i = 0; i < 1000; i++) {
+        for(var i = 0; i < amountOfPackets; i++) {
           packets[i] = {}
         }
         currentPacket = -1
@@ -116,12 +129,13 @@ html
       }
 
       var startWebsocketSpam = function() {
-        if (!webRTCconn) { return }
+        if (!websocketConn) { return }
         resetPackets();
         sendNewWebsocketPacket();
       }
 
       var sendNewWebRTCPacket = function () {
+        document.getElementById('currentpacket').innerHTML = 'Packet: ' + currentpacket + '/' + amountOfPackets
         if (currentPacket === amountOfPackets - 1) {
           document.getElementById('resultstatus').innerHTML = 'Printing result:'
           printResult('webrtc')
@@ -147,6 +161,7 @@ html
       }
 
       var sendNewWebsocketPacket = function () {
+        document.getElementById('currentpacket').innerHTML = 'Packet: ' + currentpacket + '/' + amountOfPackets
         if (currentPacket === amountOfPackets - 1) {
           document.getElementById('resultstatus').innerHTML = 'Printing result:'
           printResult('websocket')
@@ -175,22 +190,52 @@ html
       var printResult = function(type) {
         var totalRTT = 0;
         var lengthNoTimeouts = 0;
-        document.getElementById('resultset').innerHTML += `<tr><th>PcktID</th><th>Ts</th><th>Te</th><th>RTT</th></tr>`
+        // document.getElementById('resultset').innerHTML += `<tr><th>PcktID</th><th>Ts</th><th>Te</th><th>RTT</th></tr>`
         for(var i = 0; i < Object.keys(packets).length ; i++) {
           if (typeof packets[i].timeEnd !== 'string') {
             lengthNoTimeouts++;
             totalRTT += packets[i].timeEnd - packets[i].timeStart
           }
-          document.getElementById('resultset').innerHTML += `<tr><td>${i}</td><td>${packets[i].timeStart}</td><td>${packets[i].timeEnd}</td><td>${packets[i].timeEnd - packets[i].timeStart}</td></tr>`
+          // document.getElementById('resultset').innerHTML += `<tr><td>${i}</td><td>${packets[i].timeStart}</td><td>${packets[i].timeEnd}</td><td>${packets[i].timeEnd - packets[i].timeStart}</td></tr>`
         }
         var averageRTT = totalRTT / lengthNoTimeouts;
         var averageDel = averageRTT / 2
-        var timeouts = Object.keys(packets).length - lengthNoTimeouts
+        var timeouts = (Object.keys(packets).length - lengthNoTimeouts) || 0
 
-        document.getElementById('resultset').innerHTML += `<tr><td></td><td></td><td></td><td></td></tr>`
+        var result = {
+          controllerId: !{peerId},
+          agent: navigator.userAgent,
+          reliable: document.getElementById('reliablecheck').checked,
+          type: type,
+          packets: packets,
+          averageRTT: averageRTT,
+          averageDel: averageDel,
+          timeouts: timeouts
+      }
+
+        document.getElementById('resultstring').innerHTML = JSON.stringify(result)
+          /* document.getElementById('resultset').innerHTML += `<tr><td></td><td></td><td></td><td></td></tr>`
         document.getElementById('resultset').innerHTML += `<tr><td>Average RTT</td><td></td><td></td><td>${averageRTT}</td></tr>`
         document.getElementById('resultset').innerHTML += `<tr><td>Average Delivery</td><td><td></td></td><td>${averageDel}</td></tr>`
-        document.getElementById('resultset').innerHTML += `<tr><td>Timeouts: </td><td></td><td></td><td>${timeouts}</td></tr>`
+        document.getElementById('resultset').innerHTML += `<tr><td>Timeouts: </td><td></td><td></td><td>${timeouts}</td></tr>` */
 
-        document.getElementById('resultstatus').innerHTML = 'Your ' + type + ' spam result:'
+        document.getElementById('resultstatus').innerHTML = 'Your ' + type + ' spam result is done!'
+
+        postResult(result)
+      }
+
+      var postResult = function (payload) {
+
+        console.log(JSON.stringify( payload ) )
+        fetch("/result",
+        {
+            method: "POST",
+            headers: {
+              'Accept': 'application/json, application/xml, text/plain, text/html, *.*',
+              'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8'
+            },
+            body: JSON.stringify( payload )
+        })
+        .then(function(res){ return res.json(); })
+        .then(function(data){ alert( JSON.stringify( data ) ) })
       }

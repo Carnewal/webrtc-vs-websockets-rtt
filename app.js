@@ -1,3 +1,4 @@
+var bodyParser = require('body-parser');
 var server = require('http').createServer()
   , url = require('url')
   , WebSocketServer = require('ws').Server
@@ -6,7 +7,12 @@ var server = require('http').createServer()
   , app = express()
   , port = 3000;
 
+var jsonfile = require('jsonfile')
+
+
 app.set('view engine', 'pug');
+app.use(bodyParser.json()); // support json encoded bodies
+app.use(bodyParser.urlencoded({ extended: true })); // support encoded bodies
 
 var IDs = 0;
 var screenWebsockets = {}
@@ -22,6 +28,17 @@ app.get('/controller', function (req, res) {
 app.get('/screen', function (req, res) {
   res.render('screen', { peerId: IDs});
   IDs++;
+});
+
+
+app.post('/result', function (req, res) {
+  var json = Object.keys(req.body)[0];
+  var data = JSON.parse(json)
+  jsonfile.writeFile('/tmp/bp/' + new Date().getTime() + '.json', data, function (err) {
+    console.error(err)
+  })
+
+
 });
 //app.use(express.static('public'));
 

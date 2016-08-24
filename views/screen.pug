@@ -13,13 +13,17 @@ html
     h1 Screen
     h2(id='idshowcase')
     #socketstatus
+    #peerstatus
     #status Waiting for controllers...
     #controllers
 
     script(src='http://cdn.peerjs.com/0.3/peer.js')
     script.
       var peer = new Peer('!{peerId}', {key: 'nn7mfwa00j1kmx6r'});
+      document.getElementById('peerstatus').innerHTML = `[WebRTC] Opening...`
+
       peer.on('open', function(id) {
+        document.getElementById('peerstatus').innerHTML = `[WebRTC] OPENED !`
         document.getElementById('idshowcase').innerHTML = `Screen ID: ${id}`
       });
 
@@ -31,7 +35,9 @@ html
         controllers[conn.peer] = conn
         refreshControllers()
 
+
         conn.on('data', function(data){
+          console.log(data)
           conn.send(data);
         });
       });
@@ -49,6 +55,7 @@ html
       }
 
       websocketConn.onmessage = function (message) {
+        console.log(message.data)
         websocketConn.send(message.data)
       }
 
